@@ -1,0 +1,113 @@
+---
+title: "Knowledge Organization 1"
+author: "Stan Brouwer <sjbrou@gmail.com>"
+format:
+  html:
+    toc: true
+    toc-location: left
+    toc-depth: 1
+    embed-resources: true
+    self-contained: true
+    standalone: true
+    smooth-scroll: true
+    page-layout: full
+    code-fold: show
+    # grid:
+    # sidebar-width: 120px
+    #  margin-width: 180px
+editor: source
+number-sections: false
+---
+
+# Assignment 1:
+
+There are loads of tools that automate drawing mindmaps concerning certain subjects; for instance "[wikipedia-map](https://wikipedia.luk.ke/)" which creates an mindmap based on the hyperlinks it finds in the first paragraph of the wikipedia article concerning the topic.
+
+::: column-margin
+![Example wikipedia-map](data/mindmap1.png)
+:::
+
+We can make use of the wikipedia API to automatically scrape all links of a certain page, for instance about "Semantics" (printing the first 10 results)
+
+```{r, message=FALSE, warning=FALSE}
+# Required libraries
+library(httr)
+library(jsonlite)
+library(rvest)
+library(plotly)
+library(ggplot2)
+
+# Function to get all linked articles from a Wikipedia page, excluding those with ":"
+get_wikipedia_links <- function(search_term) {
+  search_term <- URLencode(search_term)   # search term encoding
+  api_url <- paste0("https://en.wikipedia.org/w/api.php?action=parse&page=", search_term, "&format=json&prop=text") # create URL
+  response <- GET(api_url) # GET request
+  if (status_code(response) != 200) {
+    stop("Failed to fetch Wikipedia page")
+  }
+  content <- fromJSON(content(response, "text"))
+  html_content <- content$parse$text$`*`
+  html <- read_html(html_content)
+
+  # Extraction of links
+  links <- html %>%
+    html_nodes("a") %>%
+    html_attr("href")
+
+  # Many links pointed to files or other unwanted resources. Those links contained ":" and we can filter those out
+  article_links <- links[grepl("^/wiki/", links) & !grepl(":", links)]
+  article_titles <- gsub("^/wiki/", "", article_links)
+
+  return(unique(article_titles))
+}
+
+# Example:
+links <- get_wikipedia_links("Semantics")
+print(links[1:10])
+
+```
+
+Lets imagine that my fellow students picked influential people. A likely sample of people picked would be the TIME person of the year. Using the api we can automatically gather the most recent 50 time people of the year, and plot the frequency of their nodes down below
+
+```{r}
+likely_picks <- get_wikipedia_links("Time_Person_of_the_Year")
+likely_picks <- likely_picks[1:50]
+```
+
+```{r}
+get_frequencies <- function(base_term) {
+  links <- get_wikipedia_links(base_term)
+  first_50_links <- links[1:50]
+  all_links <- c()
+  for (link in first_50_links) {
+    Sys.sleep(1) # API has rate limitor
+    sub_links <- get_wikipedia_links(link)
+    all_links <- c(all_links, sub_links)
+  }
+  link_frequencies <- table(all_links)
+  link_frequencies <- sort(link_frequencies, decreasing = TRUE)
+  return(link_frequencies)
+}
+plot_frequencies <- function(frequencies) {
+  freq_df <- as.data.frame(frequencies)
+  colnames(freq_df) <- c("Link", "Frequency")
+  ggplot(freq_df[1:50, ], aes(x = reorder(Link, Frequency), y = Frequency)) +
+    geom_bar(stat = "identity", fill = "steelblue") +
+    coord_flip() +
+    xlab("Linked Articles") +
+    ylab("Frequency") +
+    ggtitle("Top 50 Most Frequently Linked Articles") +
+    theme_minimal()
+}
+
+link_frequencies <- get_frequencies("Time_Person_of_the_Year")
+plot_frequencies(link_frequencies)
+```
+
+Unfortunately, due to the way that the nodes and links in the graph are organized, guessing the most frequent node does not necissarily lead to the optimal search strategy; but it is a good place to start.
+
+Reading about the optimal guess-who strategy is also quite interesting:
+
+[lancaster article](https://www.lancaster.ac.uk/stor-i-student-sites/edward-mellor/2020/02/26/optimal-strategy-for-guess-who/)
+
+[PLOS ONE - Optimal guessing in 'Guess Who' - Ben O'Neil](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7946196/)
